@@ -35,12 +35,14 @@ class Fixture(http.server.BaseHTTPRequestHandler):
             content = 'text/html'
         else:
             body, content = HTML, 'text/html'
+            if self.path == '/logged-in' and 'session=synthetic-login' in self.headers.get('Cookie', ''):
+                body += b'<p id="authenticated">Signed in as Alice</p>'
         self.send_response(200); self.send_header('Content-Type', content)
         self.send_header('Content-Length', str(len(body))); self.end_headers(); self.wfile.write(body)
     def do_POST(self):
         self.rfile.read(int(self.headers.get('Content-Length', '0')))
         self.send_response(303); self.send_header('Set-Cookie', 'session=synthetic-login; HttpOnly; SameSite=Lax; Path=/')
-        self.send_header('Location', '/'); self.end_headers()
+        self.send_header('Location', '/logged-in'); self.end_headers()
 
 
 def run(binary, browser=None):
@@ -123,6 +125,9 @@ def run(binary, browser=None):
             try: human('frame?page=p1')
             except urllib.error.HTTPError as e: assert e.code==401
             else: raise AssertionError('handoff token not revoked')
+            # Returning control acknowledges input, not completion of the login
+            # redirect. Wait for the authenticated response before writing storage.
+            call('act',task=task,actions=[{'type':'wait','selector':'#authenticated'}])
             call('eval',task=task,script='() => localStorage.setItem("remember","alice")')
             call('eval',task=task,script='''async () => { const db=await new Promise((resolve,reject)=>{const r=indexedDB.open('lab',1);r.onupgradeneeded=()=>r.result.createObjectStore('state');r.onsuccess=()=>resolve(r.result);r.onerror=()=>reject(r.error)}); await new Promise((resolve,reject)=>{const tx=db.transaction('state','readwrite');tx.objectStore('state').put('durable','token');tx.oncomplete=resolve;tx.onerror=()=>reject(tx.error)}); db.close();return true }''')
             assert 'synthetic-login' in call('eval',task=task,script='async () => (await (await fetch("/who")).json()).cookie')
