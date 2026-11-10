@@ -1,0 +1,7 @@
+**
+!Dockerfile
+!dist/
+!dist/linux-amd64/
+!dist/linux-amd64/agent-web/
+!dist/linux-amd64/agent-web/bin/
+!dist/linux-amd64/agent-web/bin/agent-web

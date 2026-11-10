@@ -1,0 +1,56 @@
+#!/bin/sh
+# Generated for a single release. No Python, Node.js, jq or sudo required.
+set -eu
+fail() { printf '%s\n' "安装失败：$*" >&2; exit 1; }
+agent=codex
+dest=
+while [ "$#" -gt 0 ]; do
+    case "$1" in
+        --agent) [ "$#" -ge 2 ] || fail '--agent 缺少参数'; agent=$2; shift 2 ;;
+        --dir) [ "$#" -ge 2 ] || fail '--dir 缺少参数'; dest=$2; [ -n "$dest" ] || fail '目录不能为空'; shift 2 ;;
+        -h|--help) printf '%s\n' '安装 Agent Web @@VERSION@@：sh install.sh [--agent codex|claude] [--dir PATH]'; exit 0 ;;
+        *) fail "未知参数：$1" ;;
+    esac
+done
+if [ -z "$dest" ]; then
+    case "$agent" in
+        codex) dest=${CODEX_HOME:-"$HOME/.codex"}/skills/agent-web ;;
+        claude) dest=$HOME/.claude/skills/agent-web ;;
+        *) fail '支持 --agent codex|claude，其他 Agent 请使用 --dir' ;;
+    esac
+fi
+[ ! -e "$dest" ] && [ ! -L "$dest" ] || fail "目标已存在，请先备份或使用新目录：$dest"
+command -v curl >/dev/null 2>&1 || fail '需要 curl'
+command -v tar >/dev/null 2>&1 || fail '需要 tar'
+if command -v sha256sum >/dev/null 2>&1; then
+    digest() { sha256sum "$1" | cut -d ' ' -f 1; }
+elif command -v shasum >/dev/null 2>&1; then
+    digest() { shasum -a 256 "$1" | cut -d ' ' -f 1; }
+else
+    fail '需要 sha256sum 或 shasum'
+fi
+case "$(uname -s)-$(uname -m)" in
+    Linux-x86_64) target=linux-amd64 ;;
+    Darwin-x86_64) target=darwin-amd64 ;;
+    Darwin-arm64|Darwin-aarch64) target=darwin-arm64 ;;
+    *) fail '目前支持 Linux x86_64、macOS Intel / Apple Silicon' ;;
+esac
+umask 077
+tmp=$(mktemp -d "${TMPDIR:-/tmp}/agent-web-download.XXXXXX")
+trap 'rm -rf "$tmp"' EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
+fetch() {
+    url=$1; expected=$2; output=$3
+    curl --fail --location --silent --show-error --retry 3 --connect-timeout 20 --max-time 900 \
+        --proto '=https' --proto-redir '=https' "$url" -o "$output"
+    [ "$(digest "$output")" = "$expected" ] || fail '下载文件 SHA-256 校验失败'
+}
+case "$target" in
+@@PLATFORMS@@
+    *) fail '此版本未包含当前平台' ;;
+esac
+fetch "$archive_url" "$archive_sha" "$tmp/package.tar.gz"
+tar -xzf "$tmp/package.tar.gz" -C "$tmp"
+"$tmp/agent-web/bin/agent-web" install --dir "$dest"
+printf '%s\n' "已安装 Agent Web @@VERSION@@ 到 ${dest}。请重新加载 Agent 技能列表。"

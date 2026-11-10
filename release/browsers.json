@@ -1,0 +1,17 @@
+{
+  "chrome_version": "157.0.8103.50",
+  "browsers": {
+    "linux-amd64": {
+      "platform": "linux64",
+      "sha256": "7bf0d41e424efd1d6281c4162993ab9dc5de92fac213c211614905a71c057d0f"
+    },
+    "darwin-amd64": {
+      "platform": "mac-x64",
+      "sha256": "886beb07d8237b8acc2b879843a3506b3a56284264b82c806c7d80546e24e0ad"
+    },
+    "darwin-arm64": {
+      "platform": "mac-arm64",
+      "sha256": "082e3fe8fcfac75aec2ef0949d70e8d2254a99ea465450e287e6c06a3f1863ed"
+    }
+  }
+}

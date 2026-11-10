@@ -1,0 +1,7 @@
+.cache/
+dist/
+internal/assets/browser/*.zip
+*.log
+.DS_Store
+__pycache__/
+*.pyc

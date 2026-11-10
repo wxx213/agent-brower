@@ -1,0 +1,31 @@
+<!doctype html>
+<html lang="zh-CN"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Agent Web · 登录接管</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#eef1f5;color:#17243a;font:15px system-ui,sans-serif}header{background:#fff;padding:18px 24px;border-bottom:1px solid #d8dfe9}h1{font-size:20px;margin:0 0 8px}p{margin:6px 0;color:#52627a}.bar{display:flex;gap:8px;flex-wrap:wrap;margin-top:12px}button,select,input{padding:10px 12px;border:1px solid #c8d2e0;border-radius:7px;background:#fff;font:inherit}button{cursor:pointer}button.primary{background:#215cd7;color:#fff;border-color:#215cd7}input{min-width:220px}main{max-width:1328px;margin:20px auto;padding:0 24px}#screen{width:100%;display:block;background:white;box-shadow:0 4px 24px #17243a18;outline:2px solid transparent;touch-action:none}#screen:focus{outline-color:#215cd7}#status{font-size:13px;min-height:20px}#address{overflow-wrap:anywhere}button:disabled{opacity:.5}
+</style>
+<header><h1>完成登录后，将控制权交回 Agent</h1><p id="reason">正在连接任务…</p><p id="address"></p>
+<div class="bar"><select id="pages" aria-label="选择网页"></select><button id="done" class="primary">已完成，交回 Agent</button></div>
+<div class="bar"><input id="text" type="password" autocomplete="off" placeholder="输入文字或密码，再发送" aria-label="发送到远程输入框"><button id="send">发送到当前输入框</button><button data-key="Tab">Tab</button><button data-key="Enter">Enter</button><button data-key="Backspace">退格</button><button data-key="Escape">Esc</button><button data-key="SelectAll">全选</button></div>
+<p>点击画面即可操作。支持拖动、滚轮和键盘；中文或粘贴内容也可用上方输入框发送。当前是服务器中的网页。</p><p id="status" role="status"></p></header>
+<main><img id="screen" tabindex="0" draggable="false" alt="远程浏览器页面"></main>
+<script>
+const task=location.pathname.split('/').pop(),token=location.hash.slice(1);history.replaceState(null,'',location.pathname);
+const $=id=>document.getElementById(id),screen=$('screen'),pages=$('pages');let active='p1',closed=false,lastImage='',drag=false,lastMove=0,chain=Promise.resolve();
+const status=t=>$('status').textContent=t;
+async function api(path,body){const r=await fetch('/human/'+encodeURIComponent(task)+'/'+path,{method:body?'POST':'GET',headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},body:body?JSON.stringify(body):undefined});if(r.status===401){closed=true;throw Error('链接已过期或控制权已交回，请向 Agent 获取新链接。')}if(!r.ok)throw Error('连接失败：'+r.status);return r}
+function send(data){chain=chain.then(async()=>{if(closed)return;const r=await api('input',{page:active,...data}),j=await r.json();if(!j.ok)throw Error(j.error.message);status('');if(data.type==='done'){closed=true;status('已交回控制权，可以关闭此页面。');$('done').disabled=true;screen.style.opacity='.55'}}).catch(e=>status(e.message));return chain}
+async function tabs(){if(closed)return;try{const j=await(await api('tabs')).json();if(!j.ok)throw Error(j.error.message);$('reason').textContent=j.result.reason||'请完成需要人工处理的步骤';const entries=Object.entries(j.result.pages);pages.replaceChildren();for(const [id,p]of entries){const o=document.createElement('option');o.value=id;o.textContent=id+' · '+(p.title||p.url);pages.append(o)}if(!j.result.pages[active])active=entries[0]?.[0]||'p1';pages.value=active;$('address').textContent=j.result.pages[active]?.url||''}catch(e){status(e.message)}if(!closed)setTimeout(tabs,2000)}
+async function frame(){if(closed)return;try{if(!document.hidden){const r=await api('frame?page='+encodeURIComponent(active));if(!r.headers.get('Content-Type').startsWith('image/')){const j=await r.json();throw Error(j.error?.message||'画面不可用')}const u=URL.createObjectURL(await r.blob());screen.src=u;if(lastImage)URL.revokeObjectURL(lastImage);lastImage=u}}catch(e){status(e.message)}if(!closed)setTimeout(frame,400)}
+pages.onchange=()=>{active=pages.value};$('done').onclick=()=>send({type:'done'});
+$('send').onclick=()=>{const text=$('text').value;$('text').value='';send({type:'text',text});screen.focus({preventScroll:true})};$('text').onkeydown=e=>{if(e.key==='Enter')$('send').click()};
+document.querySelectorAll('[data-key]').forEach(b=>b.onclick=()=>{send({type:'key',key:b.dataset.key});screen.focus({preventScroll:true})});
+function point(e){const r=screen.getBoundingClientRect();return{x:Math.max(0,Math.min(1280,(e.clientX-r.left)*1280/r.width)),y:Math.max(0,Math.min(800,(e.clientY-r.top)*800/r.height))}}
+screen.onpointerdown=e=>{e.preventDefault();screen.focus({preventScroll:true});screen.setPointerCapture(e.pointerId);drag=true;send({type:'down',...point(e),button:e.button===2?'right':'left',buttons:e.buttons})};
+screen.onpointerup=e=>{e.preventDefault();drag=false;send({type:'up',...point(e),button:e.button===2?'right':'left',buttons:0})};
+screen.onpointermove=e=>{if(!drag||Date.now()-lastMove<50)return;lastMove=Date.now();send({type:'move',...point(e),button:'left',buttons:1})};
+screen.oncontextmenu=e=>e.preventDefault();screen.addEventListener('wheel',e=>{e.preventDefault();send({type:'scroll',x:e.deltaX,y:e.deltaY})},{passive:false});
+screen.onkeydown=e=>{if(e.metaKey||e.ctrlKey){if(e.key.toLowerCase()==='a'){e.preventDefault();send({type:'key',key:'SelectAll'})}return}if(e.isComposing)return;if(e.key.length===1){e.preventDefault();send({type:'text',text:e.key})}else if(['Enter','Tab','Backspace','Delete','Escape','ArrowLeft','ArrowRight','ArrowUp','ArrowDown','Home','End','PageUp','PageDown'].includes(e.key)){e.preventDefault();send({type:'key',key:e.key})}};
+screen.onpaste=e=>{e.preventDefault();send({type:'text',text:e.clipboardData.getData('text')})};
+if(!token){closed=true;status('链接缺少接管凭证，请向 Agent 获取新链接。')}else{tabs();frame()}
+</script></html>

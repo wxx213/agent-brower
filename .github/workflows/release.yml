@@ -1,0 +1,127 @@
+name: Release
+
+on:
+  push:
+    tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '已存在的版本标签，例如 v0.1.0'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ inputs.tag || github.ref_name }}
+  cancel-in-progress: false
+
+defaults:
+  run:
+    shell: bash
+
+env:
+  RELEASE_TAG: ${{ inputs.tag || github.ref_name }}
+
+jobs:
+  build:
+    name: Build and test (${{ matrix.target }})
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: linux-amd64
+            runner: ubuntu-24.04
+          - target: darwin-amd64
+            runner: macos-15-intel
+          - target: darwin-arm64
+            runner: macos-15
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 35
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          persist-credentials: false
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7
+        with:
+          go-version-file: go.mod
+          cache: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - name: Validate release tag
+        run: |
+          python3 -c 'import os; from scripts.prepare_release import version_from_tag; print(version_from_tag(os.environ["RELEASE_TAG"]))'
+          test "$(git rev-parse HEAD)" = "$(git rev-parse "refs/tags/$RELEASE_TAG^{commit}")"
+      - name: Go checks and installer tests
+        run: |
+          go test ./...
+          go vet ./...
+          python3 -m unittest discover -s tests -p 'test_release.py' -v
+      - name: Install Linux browser libraries
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends \
+            libnss3 libnspr4 libatk1.0-0 libatk-bridge2.0-0 libdrm2 \
+            libxkbcommon0 libxcomposite1 libxdamage1 libxfixes3 libxrandr2 \
+            libgbm1 libasound2t64 libcups2 libdbus-1-3 libx11-6 libxcb1 \
+            libxext6 libxshmfence1 fonts-liberation fonts-noto-cjk
+      - name: Build pinned browser bundle
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+        run: python3 scripts/build.py --target "$BUILD_TARGET" --version "${RELEASE_TAG#v}" --locked-browser
+      - name: Real browser acceptance tests
+        env:
+          BUILD_TARGET: ${{ matrix.target }}
+          # Only the disposable GitHub-hosted Linux test VM disables the sandbox.
+          AGENT_WEB_NO_SANDBOX: ${{ runner.os == 'Linux' && '1' || '0' }}
+        run: |
+          "dist/$BUILD_TARGET/agent-web/bin/agent-web" version
+          python3 tests/e2e.py --binary "dist/$BUILD_TARGET/agent-web/bin/agent-web"
+      - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6
+        with:
+          name: release-${{ matrix.target }}
+          path: dist/agent-web-*-${{ matrix.target }}.tar.gz
+          if-no-files-found: error
+          compression-level: 0
+          retention-days: 7
+
+  publish:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          ref: refs/tags/${{ env.RELEASE_TAG }}
+          persist-credentials: false
+      - uses: actions/setup-python@ece7cb06caefa5fff74198d8649806c4678c61a1 # v6
+        with:
+          python-version: '3.12'
+      - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7
+        with:
+          pattern: release-*
+          path: dist/release
+          merge-multiple: true
+      - name: Generate installer, checksums and release notes
+        run: |
+          python3 scripts/prepare_release.py --tag "$RELEASE_TAG" --repository "$GITHUB_REPOSITORY"
+          sh -n dist/release/install.sh
+          cat dist/release/RELEASE_NOTES.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Publish GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GH_REPO: ${{ github.repository }}
+        run: |
+          test "$(gh repo view "$GH_REPO" --json isPrivate --jq .isPrivate)" = false || { echo 'Make this repository public before publishing anonymous downloads.' >&2; exit 1; }
+          # Existing releases are never overwritten. Upload failures leave a draft.
+          gh release create "$RELEASE_TAG" --verify-tag --draft \
+            --title "Agent Web $RELEASE_TAG" --notes-file dist/release/RELEASE_NOTES.md
+          gh release upload "$RELEASE_TAG" dist/release/*.tar.gz \
+            dist/release/install.sh dist/release/SHA256SUMS
+          gh release edit "$RELEASE_TAG" --draft=false
