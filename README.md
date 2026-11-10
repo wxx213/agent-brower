@@ -4,7 +4,7 @@
 
 ## 安装与使用
 
-在首个 Release 发布后，可直接安装最新版本：
+可直接安装最新正式版本：
 
 ```sh
 curl -fsSL https://github.com/wxx213/agent-brower/releases/latest/download/install.sh | sh -s -- --agent codex

@@ -35,7 +35,17 @@
 - 对三个真实归档生成 `dist/install.sh`、`dist/SHA256SUMS` 和 `dist/RELEASE_NOTES.md`；逐包检查版本、浏览器锁定信息与内部二进制摘要。
 - 生成的安装脚本通过 Shell 语法检查，并用本地下载替身安装真实 macOS Intel 发行包，确认安装后的二进制版本和嵌入技能。该检查没有使用尚未发布的 GitHub 下载链接。
 - 更新后的固定浏览器版本再次通过 Linux 容器和 macOS Intel 的完整 `tests/e2e.py`。
-- Apple Silicon 原生运行由流水线的 `macos-26` runner 验证。首次本地验收时，工作流尚未推送到 GitHub，也没有创建远端 Release；公开下载验证记录在正式发布后补充。
+- Apple Silicon 已在 GitHub 的 `macos-26` ARM runner 上完成原生构建和完整真实浏览器验收。
+
+## v0.1.0 正式发布与公开下载
+
+- 发行提交：`7d0ca7f185468659ade7a55e651f36b98fa935b1`，标签 `v0.1.0`。北京时间 2026-11-10 23:55 正式发布。
+- [GitHub Actions 运行](https://github.com/wxx213/agent-brower/actions/runs/42848573145)整体结论为 `success`，Linux、macOS Intel、Apple Silicon 三平台构建验收及发布任务全部通过。
+- [正式 Release](https://github.com/wxx213/agent-brower/releases/tag/v0.1.0)包含三个平台安装包、`install.sh` 和 `SHA256SUMS`，不是草稿或预发布版本。
+- 使用不带认证的 HTTP 请求检查全部五个附件，均返回 200；没有依赖 GitHub 登录或令牌。
+- 在 macOS Intel 上通过 `releases/latest/download/install.sh` 一键安装到临时技能目录，SHA-256 校验成功，安装后二进制返回 `version: 0.1.0`、`embedded_browser: true`，完整 `tests/e2e.py` 通过。
+- 在 Linux 隔离容器中通过 `releases/download/v0.1.0/install.sh` 完成同样的匿名安装，版本检查和完整真实浏览器验收通过。没有修改用户现有的 Agent 技能目录。
+- 首次 Apple Silicon 验收暴露了测试未等待登录跳转完成的时序问题，已改为等待认证页面标记；后续全平台验收通过。`macos-15` ARM runner 曾长期排队，最终使用官方 `macos-26` runner 完成发布。
 
 ## 验证边界
 
@@ -43,4 +53,4 @@
 - 仓库 Dockerfile 的构建在拉取 `ubuntu:24.04` 元数据时超时，尚未完成该镜像的独立构建验收。Linux 二进制本身已在容器中通过真实浏览器测试。
 - 用户登录闭环通过合成账号登录验证；没有宣称所有第三方 SSO、验证码或设备认证都已兼容。
 - 未做与 ego 的同条件性能对比。共享浏览器主进程已验证，但具体 CPU、内存和任务速度收益需要业务负载测量。
-- 尚未完成平台签名或公证；当前为本地构建的开发发行包。
+- 发行包尚未完成平台开发者签名或公证；这不影响上述已验证的下载、安装与浏览器任务结果。
