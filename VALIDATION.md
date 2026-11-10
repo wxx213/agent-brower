@@ -35,7 +35,7 @@
 - 对三个真实归档生成 `dist/install.sh`、`dist/SHA256SUMS` 和 `dist/RELEASE_NOTES.md`；逐包检查版本、浏览器锁定信息与内部二进制摘要。
 - 生成的安装脚本通过 Shell 语法检查，并用本地下载替身安装真实 macOS Intel 发行包，确认安装后的二进制版本和嵌入技能。该检查没有使用尚未发布的 GitHub 下载链接。
 - 更新后的固定浏览器版本再次通过 Linux 容器和 macOS Intel 的完整 `tests/e2e.py`。
-- Apple Silicon 原生运行由流水线的 `macos-15` runner 验证。当前工作流尚未推送到 GitHub，也没有创建远端 Release；匿名 HTTP 下载需首次实际发布后验证。
+- Apple Silicon 原生运行由流水线的 `macos-26` runner 验证。首次本地验收时，工作流尚未推送到 GitHub，也没有创建远端 Release；公开下载验证记录在正式发布后补充。
 
 ## 验证边界
 
